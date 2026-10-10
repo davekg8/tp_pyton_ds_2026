@@ -1,0 +1,28 @@
+services:
+  clients:
+    build:
+      context: ./clients
+      dockerfile: Dockerfile
+    container_name: microservice-clients
+    ports:
+      - "8080:8080"
+    networks:
+      - tp-network
+
+  commandes:
+    build:
+      context: ./commandes
+      dockerfile: Dockerfile
+    container_name: microservice-commandes
+    ports:
+      - "8081:8080"
+    environment:
+      - CLIENTS_SERVICE_URL=http://clients:8080
+    depends_on:
+      - clients
+    networks:
+      - tp-network
+
+networks:
+  tp-network:
+    driver: bridge
