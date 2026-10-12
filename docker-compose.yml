@@ -17,6 +17,7 @@ services:
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_NUM_PARTITIONS: 6
       KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
       CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
     networks:
@@ -26,6 +27,23 @@ services:
       interval: 5s
       timeout: 10s
       retries: 10
+
+  init-kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: [ "bash", "-c" ]
+    command: |
+      "
+      # Création des topics avec 6 partitions pour permettre le scaling à K instances
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic commandes-creees --partitions 3 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic demandes-predictions --partitions 6 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic resultats-predictions --partitions 6 --replication-factor 1
+      echo '=== Topics Kafka initialisés avec succès ==='
+      "
+    networks:
+      - tp-network
 
   clients:
     build:
@@ -55,6 +73,9 @@ services:
       - CLIENTS_SERVICE_URL=http://clients:8080
       - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
       - KAFKA_TOPIC=commandes-creees
+      - KAFKA_TOPIC_PREDICTIONS_REQUEST=demandes-predictions
+      - KAFKA_TOPIC_PREDICTIONS_RESULT=resultats-predictions
+      - KAFKA_GROUP_ID_PREDICTIONS=commandes-predictions-group
     depends_on:
       kafka:
         condition: service_healthy
@@ -72,6 +93,26 @@ services:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
       - KAFKA_GROUP_ID=statistiques-group
       - KAFKA_TOPIC=commandes-creees
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - tp-network
+
+  prediction:
+    build:
+      context: ./prediction
+      dockerfile: Dockerfile
+    # Pas de container_name fixe pour permettre le scaling :
+    # docker compose up --scale prediction=K -d
+    ports:
+      - "8083-8090:8080"
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - KAFKA_GROUP_ID=prediction-group
+      - KAFKA_TOPIC_REQUEST=demandes-predictions
+      - KAFKA_TOPIC_RESULT=resultats-predictions
+      - MODEL_PATH=modele_commande.pkl
     depends_on:
       kafka:
         condition: service_healthy
